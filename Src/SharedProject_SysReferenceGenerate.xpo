@@ -1,0 +1,765 @@
+﻿Exportfile for AOT version 1.0 or later
+Formatversion: 1
+
+***Element: CLS
+
+; Microsoft Dynamics AX Class: AifServiceReferenceManager выгружен
+; --------------------------------------------------------------------------------
+  CLSVERSION 1
+  
+  CLASS #AifServiceReferenceManager
+    PROPERTIES
+      Name                #AifServiceReferenceManager
+      Extends             #
+      RunOn               #Server
+    ENDPROPERTIES
+    
+    METHODS
+      Version: 3
+      SOURCE #classDeclaration
+        #// This is a framework class. Customizing this class may cause problems with future upgrades to the software.
+        #class AifServiceReferenceManager
+        #{
+        #    #Aif
+        #    #File
+        #}
+      ENDSOURCE
+      SOURCE #configure
+        #/// <summary>
+        #/// Configures the web reference using the service configuration editor.
+        #/// </summary>
+        #/// <param name="_codeNamespace">The .NET code namespace of the web reference to be configured.</param>
+        #/// <remarks>The configuration file is edited on the client and then saved on the server.</remarks>
+        #public static server void configure(AifDotNetCodeNamespace _codeNamespace)
+        #{
+        #    FilePath serverConfigFile;
+        #    List     filesToCopy = new List(Types::String);
+        #    Microsoft.Dynamics.IntegrationFramework.WebService.AppDomainCache appDomainCache;
+        #    ;
+        #
+        #    serverConfigFile = AifWebReferenceUtil::getWebReferenceRootDir() + _codeNamespace + #FilePathDelimiter + #WcfClientConfigName;
+        #    new FileIOPermission(serverConfigFile, 'rw').assert();
+        #    AifUtil::configureWcf((WinAPI::getTempPath()  + #WcfClientConfigName), serverConfigFile);
+        #    filesToCopy.addEnd( #WcfClientConfigName);
+        #    AifWebReferenceUtil::copyServiceReferenceToAOS(_codeNamespace, filesToCopy);
+        #    CodeAccessPermission::revertAssert();
+        #    new InteropPermission(InteropKind::ClrInterop).assert();
+        #    appDomainCache = Microsoft.Dynamics.IntegrationFramework.WebService.AppDomainCache::get_Instance();
+        #    if(appDomainCache)
+        #        appDomainCache.Remove(_codeNamespace);
+        #    CodeAccessPermission::revertAssert();
+        #}
+        #
+      ENDSOURCE
+      SOURCE #deleteWebReference
+        #/// <summary>
+        #/// Deletes the web reference artifacts from the application share.
+        #/// </summary>
+        #/// <param name="_codeNamespace">The .NET code namespace of the web reference to be deleted.</param>
+        #public static void deleteWebReference(AifDotNetCodeNamespace _codeNamespace)
+        #{
+        #    AifWebReferenceShare    webRefShare;
+        #    FilePath                webReferencesRootDir;
+        #    AifInfoLog              aifInfoLog = new AifInfolog();
+        #    ;
+        #    // Validate codenamespace provided first
+        #    AifWebReferenceUtil::validateNamespace(_codeNamespace);
+        #    webReferencesRootDir = AifWebReferenceUtil::getWebReferenceRootDir();
+        #    webRefShare =  new AifWebReferenceShare(webReferencesRootDir, _codeNamespace);
+        #    new InteropPermission(InteropKind::ClrInterop).assert();
+        #    AifWebReferenceUtil::deleteDirectory(webRefShare.getWebReferenceDirectory());
+        #    try
+        #    {
+        #        webRefShare = new AifWebReferenceShare(AifWebReferenceUtil::getWebReferenceAosApplBase(), _codeNamespace);
+        #        AifWebReferenceUtil::deleteDirectory(webRefShare.getWebReferenceDirectory());
+        #        CodeAccessPermission::revertAssert();
+        #    }
+        #    catch
+        #       aifInfoLog.clearLast();  // remove the error mes sages from the infolog, we dont want to show these failures to client.
+        #
+        #}
+      ENDSOURCE
+      SOURCE #doesWebReferenceDirExist
+        #private static boolean doesWebReferenceDirExist(AifDotNetCodeNamespace _codeNamespace)
+        #{
+        #    FilePath                webReferenceDir;
+        #    boolean                 webReferenceDirExists = false;
+        #    ;
+        #
+        #    webReferenceDir = AifWebReferenceUtil::getWebReferenceRootDir() + _codeNamespace;
+        #    new InteropPermission(InteropKind::ClrInterop).assert();
+        #
+        #    // create the web reference name dir
+        #    webReferenceDirExists = System.IO.Directory::Exists(webReferenceDir);
+        #
+        #    CodeAccessPermission::revertAssert();
+        #
+        #    return webReferenceDirExists;
+        #}
+      ENDSOURCE
+      SOURCE #generate
+        #/// <summary>
+        #/// Generates WCF artifacts for the web reference and stores them in the application directory.
+        #/// </summary>
+        #/// <param name="_wsdlUrl"> The WSDL of the web reference. </param>
+        #/// <param name="_codeNamespace"> The .NET code namespace of the web reference. </param>
+        #/// <param name="_overwrite"> A Boolean value that specifies whether existing artifacts of the web reference should be overwritten; optional.</param>
+        #/// <returns>
+        #/// <c>Container</c> with one element that has generated assembly binary.
+        #/// </returns>
+        #/// <remarks> The generated web reference is not added to AOT.</remarks>
+        #/// <exception cref="Exception::Error">The _overwrite parameter is false and the web reference has already been generated.</exception>
+        #/// <exception cref="Exception::Error">The user does not have permission to the web reference directory.</exception>
+        #/// <exception cref="Exception::Error">The generation of web reference artifacts has failed.</exception>
+        #public static container generate(URL _wsdlUrl, AifDotNetCodeNamespace _codeNamespace,boolean _overwrite = false)
+        #{
+        #    Filename             generatedSource;       // name of the generated source file
+        #    List                 generatedFilesList;    // list of generated files.
+        #    AifWebReferenceShare webRefShare;           // web reference share on the app dir
+        #    FilePath             generationTempDir;     // name of generation temp directory
+        #    LanguageId           culture;
+        #    boolean              includeDebugInfo;
+        #    FilePath             fullGeneratedAssemblyName;
+        #    container            generatedAssemblyBinData;
+        #    Microsoft.Dynamics.IntegrationFramework.WebService.GenerationParams generationParams;
+        #    str                  generationErrors;
+        #    str                  errorMessage;
+        #    SysReferenceGenerate    generateClass; // TDV, 24.10.19, SysReferenceGenerate
+        #
+        #
+        #    void displayGenerationWarnings()
+        #    {
+        #        try
+        #        {
+        #            generationErrors = generationParams.get_Errors();
+        #            if(generationErrors)
+        #            {
+        #                warning(generationErrors);
+        #                // Clear the displayed errors
+        #                generationParams.set_Errors('');
+        #            }
+        #        }
+        #        catch
+        #        {
+        #            // Ignore any exceptions
+        #            exceptionTextFallThrough(); // to avoid compiler warning
+        #        }
+        #    }
+        #;
+        #
+        #    // Validate codenamespace provided first
+        #    AifWebReferenceUtil::validateNamespace(_codeNamespace);
+        #
+        #    // If overwrite is false and web reference already exists we throw an error.
+        #    if(!_overwrite)
+        #    {
+        #        if(AifServiceReferenceManager::doesWebReferenceDirExist(_codeNamespace))
+        #        {
+        #            throw error("@SYS116047");
+        #        }
+        #    }
+        #
+        #    info("@SYS106441");
+        #
+        #    generationTempDir = AifWebReferenceUtil::getTempGenerationDir(_codeNamespace);
+        #    generatedFilesList = new List(Types::String);
+        #    webRefShare =  new AifWebReferenceShare(AifWebReferenceUtil::getWebReferenceRootDir(), _codeNamespace);
+        #    if(!webRefShare.validate())
+        #    {
+        #        throw error(strfmt("@SYS106021", webRefShare.getWebReferenceRootDirectory()));
+        #    }
+        #
+        #    // validate wsdlurl
+        #    AifWebReferenceUtil::validateWsdlUrl(_wsdlUrl);
+        #
+        #    //Check if you have access to wsdl
+        #    AifWebReferenceUtil::validateWsdlAccess(_wsdlUrl);
+        #
+        #    // --> TDV, 24.10.19, SysReferenceGenerate
+        #    generateClass   = SysReferenceGenerate::construct( _wsdlUrl, _codeNamespace, generationTempDir);
+        #    if ( generateClass.enabled())
+        #    {
+        #        generateClass.run();
+        #        return generateClass.generatedAssemblyBinData();
+        #    }
+        #    // <-- TDV, 24.10.19, SysReferenceGenerate
+        #
+        #    try
+        #    {
+        #        new InteropPermission(InteropKind::ClrInterop).assert();
+        #
+        #        // BP deviation documented
+        #        generationParams = new  Microsoft.Dynamics.IntegrationFramework.WebService.GenerationParams();
+        #
+        #        // Directory reference to where the webreference assembly are config are located
+        #        // usually application\appl\standard\webreferences\<webreferencename>
+        #        generationParams.set_ApplicationBaseDir(webRefShare.getWebReferenceDirectory());
+        #        generationParams.set_ApplicationConfigName(#WcfClientConfigName);
+        #        generationParams.set_CodeNamespace(_codeNamespace);
+        #        generationParams.set_GeneratedAssemblyName(_codeNamespace);
+        #        generationParams.set_WsdlUrl(_wsdlUrl);
+        #        generationParams.set_GenerationRootDir(generationTempDir);
+        #        generationParams.set_WebReferenceName(_codeNamespace);
+        #        generationParams.set_WcfClientSourceName(#GeneratedWcfProxyFileName);
+        #        generationParams.set_IntegrationCoreAssembly(#IntegrationFrameworkAssembly);
+        #        culture = LanguageTable::defaultLanguage();
+        #        generationParams.set_Culture(culture);
+        #
+        #        // Generate source code calling .NET helper
+        #        // BP deviation documented
+        #        Microsoft.Dynamics.IntegrationFramework.WebService.WebReferenceGenerator::GenerateSources(generationParams);
+        #
+        #        // Since we do a best case effort, check if any errors exist. If yes, then throw them as warnings, so user is aware of the errors.
+        #        // This is similar to svcutil.exe, but not the way VS2008 behaves
+        #        displayGenerationWarnings();
+        #
+        #        generatedSource = generationParams.get_WebServiceProxyName();
+        #
+        #        info(strfmt("@SYS106442", generatedSource));
+        #
+        #        info(strfmt("@SYS113191",  #WcfClientConfigName));
+        #
+        #        // Generate assembly
+        #        // BP deviation documented
+        #        Microsoft.Dynamics.IntegrationFramework.WebService.WebReferenceGenerator::GenerateAssembly(generationParams);
+        #
+        #        // Display warnings if any
+        #        displayGenerationWarnings();
+        #
+        #        info(strfmt("@SYS89681", _codeNamespace + #AssemblyFileExtension));
+        #
+        #        //Get debug Info
+        #        includeDebugInfo = generationParams.get_IncludeDebugInfo();
+        #        CodeAccessPermission::revertAssert();
+        #    }
+        #    catch(Exception::CLRError)
+        #    {
+        #        // Get the CLR error before any other CLR operation
+        #        errorMessage = AifUtil::getClrErrorMessage();
+        #        // Display warnings if any
+        #        displayGenerationWarnings();
+        #
+        #        throw error(errorMessage);
+        #    }
+        #
+        #    // Copy the files from the temp generation dir to the actual share.
+        #    generatedFilesList.addEnd( generatedSource );
+        #    generatedFilesList.addEnd( #GeneratedWcfProxyFileName );
+        #    generatedFilesList.addEnd( _codeNamespace + #AssemblyFileExtension );
+        #    generatedFilesList.addEnd( #WcfClientConfigName );
+        #    if(includeDebugInfo)
+        #        generatedFilesList.addEnd( _codeNamespace + #DebugFileExtension );
+        #
+        #    webRefShare.copyGeneratedFiles(generationTempDir, generatedFilesList);
+        #
+        #    info(strfmt("@SYS106444", webRefShare.getWebReferenceDirectory()));
+        #
+        #    // Clean the temp generation dir
+        #    AifWebReferenceUtil::cleanTempGenerationDir(generationTempDir);
+        #
+        #    info("@SYS106445");
+        #
+        #    // Now we have to return the generated assembly as a container.
+        #    fullGeneratedAssemblyName = webRefShare.getWebReferenceDirectory() + #FilePathDelimiter + _codeNamespace + #AssemblyFileExtension;
+        #    new FileIOPermission(fullGeneratedAssemblyName, 'r').assert();
+        #    generatedAssemblyBinData = AifWebReferenceUtil::readServerFile(fullGeneratedAssemblyName);
+        #    CodeAccessPermission::revertAssert();
+        #
+        #    return generatedAssemblyBinData;
+        #}
+      ENDSOURCE
+    ENDMETHODS
+  ENDCLASS
+
+***Element: CLS
+
+; Microsoft Dynamics AX Class: SysReferenceGenerate выгружен
+; --------------------------------------------------------------------------------
+  CLSVERSION 1
+  
+  CLASS #SysReferenceGenerate
+    PROPERTIES
+      Name                #SysReferenceGenerate
+      Extends             #
+      RunOn               #Called from
+    ENDPROPERTIES
+    
+    METHODS
+      Version: 3
+      SOURCE #classDeclaration
+        #// TDV, 24.10.19, SysReferenceGenerate
+        #// Класс для встраивания в функцию AifServiceReferenceManager::generate
+        #// С помощью своих наследников генерит прокси-класс и dll для сервисов, если это включено в конфиг-файле
+        #// Реализована генерация прокси-класса для Wcf-сервисов и RestFul-сервисов с настроенным Swagger
+        #abstract class SysReferenceGenerate
+        #{
+        #    URL                     referenceUrl;
+        #    AifDotNetCodeNamespace  codeNamespace;
+        #    FilePath                generationTempDir;
+        #
+        #    container               generatedAssemblyBinData;
+        #}
+      ENDSOURCE
+      SOURCE #configSectionName
+        #abstract str configSectionName()
+        #{
+        #}
+      ENDSOURCE
+      SOURCE #enabled
+        #boolean enabled()
+        #{
+        #    return this.getConfigValueBoolean( "enable");
+        #}
+      ENDSOURCE
+      SOURCE #generate_Dll
+        #abstract void generate_Dll()
+        #{
+        #}
+      ENDSOURCE
+      SOURCE #generate_Source
+        #abstract FileName generate_Source()
+        #{
+        #}
+      ENDSOURCE
+      SOURCE #generatedAssemblyBinData
+        #container generatedAssemblyBinData()
+        #{
+        #    return generatedAssemblyBinData;
+        #}
+      ENDSOURCE
+      SOURCE #getConfigValue
+        #str getConfigValue( str _paramName)
+        #{
+        #    return SysConfigFile::value( strfmt("%1/%2", this.configSectionName(), _paramName));
+        #}
+      ENDSOURCE
+      SOURCE #getConfigValueBoolean
+        #boolean getConfigValueBoolean( str _paramName)
+        #{
+        #    return SysConfigFile::valueBoolean( strfmt("%1/%2", this.configSectionName(), _paramName));
+        #}
+      ENDSOURCE
+      SOURCE #new
+        #void new( URL                     _referenceUrl
+        #        , AifDotNetCodeNamespace  _codeNamespace
+        #        , FilePath                _generationTempDir
+        #        )
+        #{
+        #;
+        #    referenceUrl        = _referenceUrl;
+        #    codeNamespace       = _codeNamespace;
+        #    generationTempDir   = _generationTempDir;
+        #}
+      ENDSOURCE
+      SOURCE #run
+        ##Aif
+        ##File
+        #void run()
+        #{
+        #    Filename             generatedSource;       // name of the generated source file
+        #    List                 generatedFilesList;    // list of generated files.
+        #    AifWebReferenceShare webRefShare;           // web reference share on the app dir
+        #    FilePath             fullGeneratedAssemblyName;
+        #    str                  errorMessage;
+        #;
+        #    generatedFilesList = new List(Types::String);
+        #    webRefShare =  new AifWebReferenceShare(AifWebReferenceUtil::getWebReferenceRootDir(), codeNamespace);
+        #
+        #    try
+        #    {
+        #        generatedSource = this.generate_Source();
+        #
+        #        info(strfmt("@SYS106442", generatedSource));
+        #
+        #        this.generate_Dll();
+        #
+        #        info(strfmt("@SYS89681", codeNamespace + #AssemblyFileExtension));
+        #    }
+        #    catch (Exception::CLRError)
+        #    {
+        #        // Get the CLR error before any other CLR operation
+        #        errorMessage = AifUtil::getClrErrorMessage();
+        #
+        #        throw error(errorMessage);
+        #    }
+        #
+        #    // Copy the files from the temp generation dir to the actual share.
+        #    generatedFilesList.addEnd( generatedSource );
+        #    generatedFilesList.addEnd( codeNamespace + #AssemblyFileExtension );
+        #    generatedFilesList.addEnd( #WcfClientConfigName );
+        #
+        #    webRefShare.copyGeneratedFiles(generationTempDir, generatedFilesList);
+        #
+        #    info(strfmt("@SYS106444", webRefShare.getWebReferenceDirectory()));
+        #
+        #    // Clean the temp generation dir
+        #    AifWebReferenceUtil::cleanTempGenerationDir(generationTempDir);
+        #
+        #    info("@SYS106445");
+        #
+        #    // Now we have to return the generated assembly as a container.
+        #    fullGeneratedAssemblyName = webRefShare.getWebReferenceDirectory() + #FilePathDelimiter + codeNamespace + #AssemblyFileExtension;
+        #    new FileIOPermission(fullGeneratedAssemblyName, 'r').assert();
+        #    generatedAssemblyBinData = AifWebReferenceUtil::readServerFile(fullGeneratedAssemblyName);
+        #    CodeAccessPermission::revertAssert();
+        #}
+      ENDSOURCE
+      SOURCE #construct
+        #static SysReferenceGenerate construct( URL                     _referenceUrl
+        #                                     , AifDotNetCodeNamespace  _codeNamespace
+        #                                     , FilePath                _generationTempDir
+        #                                     )
+        #{
+        #    SysReferenceGenerate    ret;
+        #;
+        #    if ( SysReferenceGenerate::urlIsWcf( _referenceUrl))
+        #    {
+        #        ret = new SysReferenceGenerate_Wcf( _referenceUrl, _codeNamespace, _generationTempDir);
+        #    }
+        #    else
+        #    {
+        #        ret = new SysReferenceGenerate_NSwag( _referenceUrl, _codeNamespace, _generationTempDir);
+        #    }
+        #
+        #    return ret;
+        #}
+      ENDSOURCE
+      SOURCE #shellExecuteWait
+        #static server boolean shellExecuteWait(str _commandLine, str _arguments = "", int _waitTime = -1)
+        #{
+        #    System.Diagnostics.Process          process;
+        #    System.Diagnostics.ProcessStartInfo startInfo;
+        #    InteropPermission                   permission = new InteropPermission(InteropKind::ClrInterop);
+        #    System.Exception                    exception;
+        #    Boolean                             exited;
+        #    ;
+        #    permission.assert();
+        #
+        #    startInfo   = new System.Diagnostics.ProcessStartInfo(_commandLine);
+        #    process     = new System.Diagnostics.Process();
+        #
+        #    if (_arguments)
+        #    {
+        #        startInfo.set_Arguments(_arguments);
+        #    }
+        #
+        #    try
+        #    {
+        #        process.set_StartInfo(startInfo);
+        #        process.Start();
+        #        process.WaitForExit(_waitTime);
+        #
+        #        exited = process.get_HasExited();
+        #
+        #        if (exited == false)
+        #        {
+        #            process.Kill();
+        #
+        #            return false;
+        #        }
+        #
+        #        return true;
+        #    }
+        #    catch (Exception::CLRError)
+        #    {
+        #        exception = CLRInterop::getLastException();
+        #
+        #        while (exception)
+        #        {
+        #            error(exception.get_Message());
+        #
+        #            exception = exception.get_InnerException();
+        #        }
+        #
+        #        return false;
+        #    }
+        #}
+      ENDSOURCE
+      SOURCE #urlIsWcf
+        #/*
+        #    Относится ли указанная URL к Wcf-сервисам
+        #    перечислены все известные нам признаки для автоматического отделения URL wcf-сервисов от http-сервисов
+        #*/
+        #static boolean urlIsWcf( str _referenceUrl)
+        #{
+        #    return InRange( "*.svc", _referenceUrl)
+        #        || InRange( "*.asmx",_referenceUrl)
+        #        || InRange( "*wsdl", _referenceUrl)
+        #        ;
+        #}
+      ENDSOURCE
+    ENDMETHODS
+  ENDCLASS
+
+***Element: CLS
+
+; Microsoft Dynamics AX Class: SysReferenceGenerate_Wcf выгружен
+; --------------------------------------------------------------------------------
+  CLSVERSION 1
+  
+  CLASS #SysReferenceGenerate_Wcf
+    PROPERTIES
+      Name                #SysReferenceGenerate_Wcf
+      Extends             #SysReferenceGenerate
+      RunOn               #Called from
+    ENDPROPERTIES
+    
+    METHODS
+      Version: 3
+      SOURCE #classDeclaration
+        #// TDV, 24.10.19, SysReferenceGenerate
+        #/*
+        #    // Класс для генерации референсов на веб-сервисы с помощью svcutil и csc
+        #    // Для работы класса в конфиг-файле необходимы следующие настройки
+        #
+        #    <SysReferenceGenerate_Wcf>
+        #        <enable>true</enable>
+        #        <svcutil_path>\\%fileserver%\Tools\SysReferenceGenerate_Wcf\Framework40\SvcUtil.exe</svcutil_path>
+        #        <csc_path>C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe</csc_path>
+        #    </SysReferenceGenerate_Wcf>
+        #*/
+        #class SysReferenceGenerate_Wcf extends SysReferenceGenerate
+        #{
+        #}
+      ENDSOURCE
+      SOURCE #configSectionName
+        #str configSectionName()
+        #{
+        #    return "SysReferenceGenerate_Wcf";
+        #}
+      ENDSOURCE
+      SOURCE #generate_Dll
+        #void generate_Dll()
+        #{
+        #    str                 csc_Path;
+        #    str                 csc_Args;
+        #    str                 sourceFileName;
+        #    str                 dllFileName;
+        #;
+        #    sourceFileName  = strfmt( "%1\\%2.cs"
+        #                            , generationTempDir
+        #                            , codeNamespace
+        #                            );
+        #
+        #    if ( !SysFile::checkFileExists( sourceFileName))
+        #        throw Error("Изменения отменены!");
+        #
+        #    dllFileName     = strfmt( "%1\\%2.dll"
+        #                            , generationTempDir
+        #                            , codeNamespace
+        #                            );
+        #
+        #    csc_Path    = this.getConfigValue( "csc_path");
+        #
+        #    if ( !SysFile::checkFileExists( csc_Path))
+        #        throw Error("Изменения отменены!");
+        #
+        #    csc_Args        = strfmt( "/target:library /out:\"%1\" \"%2\""
+        #                            , dllFileName
+        #                            , sourceFileName
+        #                            );
+        #
+        #    //info( csc_Path);
+        #    //info( csc_Args);
+        #
+        #    SysReferenceGenerate::shellExecuteWait( csc_Path, csc_Args);
+        #}
+      ENDSOURCE
+      SOURCE #generate_Source
+        #Filename generate_Source()
+        #{
+        #    str                 svcUtil_Path;
+        #    str                 svcUtil_Args;
+        #    str                 sourceFileName;
+        #    str                 configFilePath;
+        #;
+        #    if ( !SysFile::checkFileExists( generationTempDir, true))
+        #        throw Error("Изменения отменены!");
+        #
+        #    svcUtil_Path    = this.getConfigValue( "svcutil_path");
+        #
+        #    if ( !SysFile::checkFileExists( svcUtil_Path))
+        #        throw Error("Изменения отменены!");
+        #
+        #    sourceFileName  = strfmt( "%1.cs"
+        #                            , codeNamespace
+        #                            );
+        #    configFilePath  = strfmt( "%1\\app.config", generationTempDir);
+        #
+        #    svcUtil_Args    = strfmt( "%1 /targetClientVersion:Version35 /out:\"%3\\%2.cs\" /namespace:*,%2 /config:\"%4\""
+        #                            , referenceUrl
+        #                            , codeNamespace
+        #                            , generationTempDir
+        #                            , configFilePath
+        #                            );
+        #
+        #    // TODO: If exists - copy "app.config" to temp dir. Add parameter mergeConfig.
+        #    //if ( )
+        #
+        #    if ( !SysReferenceGenerate::shellExecuteWait( svcUtil_Path, svcUtil_Args))
+        #        throw Error( strfmt("Не удалось создать прокси-класс для сервиса \"%1\"", referenceUrl));
+        #
+        #    if ( !SysFile::fileExists( strfmt("%1\\%2", generationTempDir, sourceFileName)))
+        #        throw Error( strfmt("Не удалось создать файл %1 прокси-класса для сервиса \"%2\"", sourceFileName, referenceUrl));
+        #
+        #    return sourceFileName;
+        #}
+      ENDSOURCE
+    ENDMETHODS
+  ENDCLASS
+
+***Element: CLS
+
+; Microsoft Dynamics AX Class: SysReferenceGenerate_NSwag выгружен
+; --------------------------------------------------------------------------------
+  CLSVERSION 1
+  
+  CLASS #SysReferenceGenerate_NSwag
+    PROPERTIES
+      Name                #SysReferenceGenerate_NSwag
+      Extends             #SysReferenceGenerate
+      RunOn               #Called from
+    ENDPROPERTIES
+    
+    METHODS
+      Version: 3
+      SOURCE #classDeclaration
+        #// TDV, 24.10.19, SysReferenceGenerate
+        #/*
+        #    // Класс для генерации референсов на http-сервисы с помощью nswagstudio и csc
+        #    // Для работы класса в конфиг-файле необходимы следующие настройки
+        #
+        #    <SysReferenceGenerate_NSwag>
+        #        <enable>true</enable>
+        #        <nswag_path>C:\Program Files (x86)\Rico Suter\NSwagStudio\Win\nswag.exe</nswag_path>
+        #        <generate_dll_path>\\%fileserver%\tools\SysReferenceGenerate_NSwag\generate-dll.bat</generate_dll_path>
+        #    </SysReferenceGenerate_NSwag>
+        #
+        #    На сервере АОСа должен быть установлен nswagstudio
+        #*/
+        #class SysReferenceGenerate_NSwag extends SysReferenceGenerate
+        #{
+        #}
+      ENDSOURCE
+      SOURCE #configSectionName
+        #str configSectionName()
+        #{
+        #    return "SysReferenceGenerate_NSwag";
+        #}
+      ENDSOURCE
+      SOURCE #generate_Dll
+        #void generate_Dll()
+        #{
+        #    str                 generate_bat_Path;
+        #    str                 generate_bat_Args;
+        #    str                 sourceFileName;
+        #;
+        #    sourceFileName  = strfmt( "%1\\%2.cs"
+        #                            , generationTempDir
+        #                            , codeNamespace
+        #                            );
+        #
+        #    if ( !SysFile::checkFileExists( sourceFileName))
+        #        throw Error("Изменения отменены!");
+        #
+        #    generate_bat_Path   = this.getConfigValue( "generate_dll_path");
+        #
+        #    if ( !SysFile::checkFileExists( generate_bat_Path))
+        #        throw Error("Изменения отменены!");
+        #
+        #    generate_bat_Args   = strfmt( "%1 %2"
+        #                                , codeNamespace
+        #                                , generationTempDir
+        #                                );
+        #
+        #    SysReferenceGenerate::shellExecuteWait( generate_bat_Path, generate_bat_Args);
+        #}
+      ENDSOURCE
+      SOURCE #generate_Source
+        #Filename generate_Source()
+        #{
+        #    str                 nswag_Path;
+        #    str                 generate_bat_Args;
+        #    str                 sourceFileName;
+        #;
+        #    if ( !SysFile::checkFileExists( generationTempDir, true))
+        #        throw Error("Изменения отменены!");
+        #
+        #    nswag_Path   = this.getConfigValue( "nswag_path");
+        #
+        #    if ( !SysFile::checkFileExists( nswag_Path))
+        #        throw Error("Изменения отменены!");
+        #
+        #    sourceFileName  = strfmt( "%1.cs"
+        #                            , codeNamespace
+        #                            );
+        #
+        #    generate_bat_Args   = strfmt( "openapi2csclient /input:%1 /namespace:%2 /output:\"%3%2.cs\" /GenerateSyncMethods:true"
+        #                                , referenceUrl
+        #                                , codeNamespace
+        #                                , generationTempDir
+        #                                );
+        #
+        #    SysReferenceGenerate::shellExecuteWait( nswag_Path, generate_bat_Args);
+        #
+        #    return sourceFileName;
+        #}
+      ENDSOURCE
+    ENDMETHODS
+  ENDCLASS
+
+***Element: PRN
+
+; Microsoft Dynamics AX Project : SysReferenceGenerate unloaded
+; --------------------------------------------------------------------------------
+  PROJECTVERSION 2
+  
+  PROJECT #SysReferenceGenerate
+   SHARED
+  PROPERTIES
+    Name                #SysReferenceGenerate
+  ENDPROPERTIES
+  
+    PROJECTCLASS ProjectNode
+    GROUP #Classes
+      PROPERTIES
+        Name                #Classes
+        ProjectGroupType    #Classes
+        GroupMask           #
+        PreventEditProperties #No
+      ENDPROPERTIES
+      
+      BEGINNODE
+        FILETYPE 0
+        UTILTYPE 45
+        UTILOBJECTID 668
+        NODETYPE 329
+        NAME #AifServiceReferenceManager
+      ENDNODE
+      BEGINNODE
+        FILETYPE 0
+        UTILTYPE 45
+        UTILOBJECTID 41706
+        NODETYPE 329
+        NAME #SysReferenceGenerate
+      ENDNODE
+      BEGINNODE
+        FILETYPE 0
+        UTILTYPE 45
+        UTILOBJECTID 41707
+        NODETYPE 329
+        NAME #SysReferenceGenerate_Wcf
+      ENDNODE
+      BEGINNODE
+        FILETYPE 0
+        UTILTYPE 45
+        UTILOBJECTID 41708
+        NODETYPE 329
+        NAME #SysReferenceGenerate_NSwag
+      ENDNODE
+      ENDGROUP
+      
+  ENDPROJECT
+  
+
+***Element: END

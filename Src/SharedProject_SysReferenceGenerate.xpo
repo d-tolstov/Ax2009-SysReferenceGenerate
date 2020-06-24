@@ -694,7 +694,7 @@ Formatversion: 1
         #                            , codeNamespace
         #                            );
         #
-        #    generate_bat_Args   = strfmt( "openapi2csclient /input:%1 /namespace:%2 /output:\"%3%2.cs\" /GenerateSyncMethods:true"
+        #    generate_bat_Args   = strfmt( "openapi2csclient /input:%1 /namespace:%2 /output:\"%3%2.cs\" /GenerateSyncMethods:true /dateTimeType:System.DateTime /dateType:System.DateTime"
         #                                , referenceUrl
         #                                , codeNamespace
         #                                , generationTempDir
